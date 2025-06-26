@@ -11,8 +11,10 @@ class Scanerpage extends StatefulWidget {
 class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateMixin {
   bool _isScanned = false;
   String? _scannedValue;
+  String? _rfidValue;
   late AnimationController _controller;
   late Animation<double> _animation;
+  final TextEditingController _rfidController = TextEditingController();
 
   @override
   void initState() {
@@ -31,6 +33,7 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
   @override
   void dispose() {
     _controller.dispose();
+    _rfidController.dispose();
     super.dispose();
   }
 
@@ -41,33 +44,50 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
       setState(() {
         _isScanned = true;
         _scannedValue = barcodes.first.rawValue;
-      });
-      Future.delayed(const Duration(seconds: 1), () {
-        Navigator.of(context).pop(_scannedValue);
+        _rfidValue = _extractRfid(_scannedValue!);
+        if (_rfidValue != null) {
+          _rfidController.text = _rfidValue!;
+        }
       });
     }
+  }
+
+  /// Extracts RFID from URL. E.g. ...?RFID=XXXXX or ...?rfid=XXXXX
+  String? _extractRfid(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.queryParameters.isNotEmpty) {
+      return uri.queryParameters['RFID'] ?? uri.queryParameters['rfid'];
+    }
+    final exp = RegExp(r"RFID=([A-Za-z0-9]+)", caseSensitive: false);
+    final match = exp.firstMatch(url);
+    if (match != null) return match.group(1);
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final double scanBoxSize = MediaQuery.of(context).size.width * 0.74;
-    final double verticalMargin = MediaQuery.of(context).size.height * 0.18;
+    final double verticalMargin = MediaQuery.of(context).size.height * 0.17;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF171C24),
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Scan QR/Barcode', style: TextStyle(color: Colors.white)),
+        title: const Text('Scan QR/Barcode',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22, letterSpacing: 0.5)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
+      extendBodyBehindAppBar: true,
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Camera preview
           MobileScanner(
             fit: BoxFit.cover,
             onDetect: _onDetect,
           ),
+          // Subtle dark overlay except scan area
           LayoutBuilder(builder: (context, constraints) {
             final w = constraints.maxWidth;
             final h = constraints.maxHeight;
@@ -76,35 +96,15 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
 
             return Stack(
               children: [
-                // Dimming with punch hole
-                ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.58),
-                    BlendMode.srcOut,
-                  ),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: w,
-                        height: h,
-                        color: Colors.black.withOpacity(0.7),
-                      ),
-                      Positioned(
-                        left: left,
-                        top: top,
-                        child: Container(
-                          width: scanBoxSize,
-                          height: scanBoxSize,
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(26),
-                          ),
-                        ),
-                      ),
-                    ],
+                // Dimming with a clear scan area
+                IgnorePointer(
+                  child: Container(
+                    width: w,
+                    height: h,
+                    color: Colors.black.withOpacity(0.32),
                   ),
                 ),
-                // White border
+                // The scan area stays sharp and white
                 Positioned(
                   left: left,
                   top: top,
@@ -112,13 +112,15 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
                     width: scanBoxSize,
                     height: scanBoxSize,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(color: Colors.white, width: 2.5),
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.tealAccent, width: 3),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.18),
-                          blurRadius: 14,
-                        )
+                          color: Colors.black.withOpacity(0.20),
+                          blurRadius: 18,
+                          spreadRadius: 1,
+                        ),
                       ],
                     ),
                   ),
@@ -140,43 +142,137 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
                     ),
                   ),
                 ),
-                // Instruction text
+                // Instruction
                 Positioned(
                   left: 0,
                   right: 0,
-                  top: top + scanBoxSize + 30,
-                  child: const Center(
-                    child: Text(
-                      "Place QR or Barcode inside the box",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        shadows: [
-                          Shadow(color: Colors.black, blurRadius: 5),
-                        ],
+                  top: top + scanBoxSize + 28,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.47),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.tealAccent.withOpacity(0.2), width: 1.0),
+                      ),
+                      child: const Text(
+                        "Place QR or Barcode inside the box",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.1,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ),
                 ),
-                // Scanned value overlay
-                if (_isScanned && _scannedValue != null)
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: Colors.black87,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        "Scanned: $_scannedValue",
-                        style: const TextStyle(
-                            color: Colors.greenAccent,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold),
+                // RFID TextField at the bottom
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 28,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                    child: Material(
+                      color: Colors.black.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextField(
+                              controller: _rfidController,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 18,
+                                letterSpacing: 1.2,
+                              ),
+                              cursorColor: Colors.tealAccent,
+                              decoration: InputDecoration(
+                                labelText: "RFID Number",
+                                labelStyle: TextStyle(
+                                    color: Colors.tealAccent.shade100,
+                                    fontWeight: FontWeight.w500
+                                ),
+                                filled: true,
+                                fillColor: Colors.transparent,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                    color: Colors.tealAccent,
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                    color: Colors.tealAccent.withOpacity(0.7),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                    color: Colors.tealAccent,
+                                    width: 2,
+                                  ),
+                                ),
+                                prefixIcon: const Icon(Icons.numbers, color: Colors.tealAccent),
+                              ),
+                            ),
+                            const SizedBox(height: 13),
+                            if (_isScanned)
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.done, color: Colors.white),
+                                label: const Text("Use this RFID"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.teal.shade700,
+                                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 34),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  elevation: 7,
+                                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).pop(_rfidController.text);
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  )
+                  ),
+                ),
+                // Scanned value overlay (top-center)
+                if (_isScanned && _scannedValue != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: top - 48,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade700.withOpacity(0.89),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          "Scanned: $_scannedValue",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           }),
@@ -186,7 +282,6 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
   }
 }
 
-/// Scan line that moves up and down within the central 60% (NOT the whole box)
 class _ScanLinePainter extends CustomPainter {
   final double progress;
   _ScanLinePainter(this.progress);
@@ -194,12 +289,11 @@ class _ScanLinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final Paint paint = Paint()
-      ..color = const Color(0xFF2AE4FF)
-      ..strokeWidth = 4.5
+      ..color = Colors.tealAccent
+      ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
-    // Move line between 20% and 80% of box height (centered movement)
-    final double minY = size.height * 0.2;
-    final double maxY = size.height * 0.8;
+    final double minY = size.height * 0.23;
+    final double maxY = size.height * 0.77;
     final double y = minY + (maxY - minY) * progress;
     canvas.drawLine(
       Offset(10, y),

@@ -11,9 +11,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'GE Vernova',
       theme: ThemeData(
         primaryColor: const Color(0xFF00695C),
+        scaffoldBackgroundColor: Color(0xFF009688), // your teal
         colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.teal)
             .copyWith(secondary: const Color(0xFFC0FF33)),
       ),

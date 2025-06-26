@@ -17,6 +17,44 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
   final TextEditingController _rfidController = TextEditingController();
   String errorMsg = '';
   bool isLoading = false;
+  int inspectedCount = 0;
+  int pendingCount = 0;
+  bool isSummaryLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchInspectionSummary();
+  }
+
+  Future<void> fetchInspectionSummary() async {
+    setState(() => isSummaryLoading = true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final fullName = prefs.getString('full_name') ?? '';
+
+    const String apiUrl = 'https://esheapp.in/GE/App/get_operator_equipments_status.php';
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({'operator_name': fullName}),
+      );
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['equipments'] is List) {
+          final eqs = List<Map<String, dynamic>>.from(data['equipments']);
+          inspectedCount = eqs
+              .where((e) => e['is_inspected'] == true)
+              .length;
+          pendingCount = eqs.length - inspectedCount;
+        }
+      }
+    } catch (_) {}
+    setState(() => isSummaryLoading = false);
+  }
 
   Future<void> _goToChecklistPage() async {
     final rfid = _rfidController.text.trim();
@@ -46,10 +84,8 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
         }),
       );
 
-      // Always print the raw response for debugging
       print('API response: ${response.body}');
 
-      // Check for an empty response or bad status
       if (response.statusCode != 200 || response.body.isEmpty) {
         setState(() {
           isLoading = false;
@@ -60,7 +96,6 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
 
       final data = jsonDecode(response.body);
 
-      // Defensive: handle unexpected response structure
       if (data == null || !(data is Map)) {
         setState(() {
           isLoading = false;
@@ -78,17 +113,20 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ChecklistPage(
-              operatorName: fullName,
-              rfidNo: eq['rfid_no'],
-              itemCategory: eq['item_category'],
-            ),
+            builder: (_) =>
+                ChecklistPage(
+                  operatorName: fullName,
+                  rfidNo: eq['rfid_no'],
+                  itemCategory: eq['item_category'],
+                  description: eq['description'] ?? '', // Pass description!
+                ),
           ),
         );
       } else {
         setState(() {
           isLoading = false;
-          errorMsg = data['message'] ?? "Not authorized or equipment not found!";
+          errorMsg =
+              data['message'] ?? "Not authorized or equipment not found!";
         });
       }
     } catch (e) {
@@ -98,7 +136,6 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
       });
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -114,9 +151,8 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
             onPressed: () async {
               final prefs = await SharedPreferences.getInstance();
               await prefs.clear();
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => AuthPage()),
                     (route) => false,
               );
             },
@@ -136,9 +172,9 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
         children: [
           Positioned.fill(
             child: Opacity(
-              opacity: 0.11,
+              opacity: .30,
               child: Image.asset(
-                'assets/bg_wave.png',
+                'assets/GE_logo.png',
                 fit: BoxFit.cover,
                 alignment: Alignment.bottomCenter,
               ),
@@ -150,26 +186,93 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircleAvatar(
-                        radius: 26,
-                        backgroundColor: const Color(0xFFC0FF33),
-                        child: const Icon(Icons.person, color: Color(0xFF009688), size: 34),
+                  // --- INSPECTED / PENDING SUMMARY CARD ---
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    color: Colors.white,
+                    elevation: 5,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 22, vertical: 16),
+                      child: isSummaryLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Column(
+                            children: [
+                              Text(
+                                '$inspectedCount',
+                                style: const TextStyle(
+                                  color: Colors.teal,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 26,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                "Inspected",
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                              width: 1.4, height: 38, color: Colors.teal[100]),
+                          Column(
+                            children: [
+                              Text(
+                                '$pendingCount',
+                                style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 26,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                "Pending",
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 15),
-                      const Text(
-                        "Welcome, Operator!",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
+
+                  // --- USER HEADER ---
+                  // Row(
+                  //   mainAxisAlignment: MainAxisAlignment.center,
+                  //   children: [
+                  //     CircleAvatar(
+                  //       radius: 26,
+                  //       backgroundColor: const Color(0xFFC0FF33),
+                  //       child: const Icon(
+                  //           Icons.person, color: Color(0xFF009688), size: 34),
+                  //     ),
+                  //     const SizedBox(width: 15),
+                  //     const Text(
+                  //       "Welcome, Operator!",
+                  //       style: TextStyle(
+                  //         color: Colors.white,
+                  //         fontSize: 22,
+                  //         fontWeight: FontWeight.bold,
+                  //         letterSpacing: 0.5,
+                  //       ),
+                  //     ),
+                  //   ],
+                  // ),
                   const SizedBox(height: 30),
 
                   // RFID Input Field with QR Code Icon
@@ -202,7 +305,8 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
                           onPressed: () async {
                             final result = await Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (_) => const Scanerpage()),
+                              MaterialPageRoute(
+                                  builder: (_) => const Scanerpage()),
                             );
                             if (result != null && result is String) {
                               setState(() {
@@ -244,8 +348,10 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF009688),
                         foregroundColor: Colors.white,
-                        textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        textStyle: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.w600),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                         elevation: 4,
                       ),
                     ),
@@ -256,7 +362,8 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
                   // Instructions Card
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 22),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 26, horizontal: 22),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(24),
@@ -312,13 +419,18 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
                   Center(
                     child: OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFC0FF33), width: 1.3),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: const BorderSide(color: Color(0xFFC0FF33),
+                            width: 1.3),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                         backgroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 22, vertical: 11),
                         elevation: 2,
                       ),
-                      icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF009688), size: 22),
+                      icon: const Icon(
+                          Icons.help_outline_rounded, color: Color(0xFF009688),
+                          size: 22),
                       label: const Text(
                         "Need Help?",
                         style: TextStyle(

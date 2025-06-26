@@ -60,6 +60,7 @@ class _CheckingPageState extends State<CheckingPage> {
               operatorName: fullName,
               rfidNo: eq['rfid_no'],
               itemCategory: eq['item_category'],
+              description: eq['description'] ?? '',
             ),
           ),
         );

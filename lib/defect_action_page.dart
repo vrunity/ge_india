@@ -83,9 +83,15 @@ class _DefectActionPageState extends State<DefectActionPage> {
   }
 
 
+  bool isSubmitting = false; // Add in your State class
+
   Future<void> _solveDefectAt(String dateTime, String questionKey) async {
+    if (isSubmitting) return;
+    setState(() => isSubmitting = true);
+
     // 1️⃣ VALIDATION
     if (!completed) {
+      setState(() => isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please toggle “Completed” before saving.'),
@@ -96,6 +102,7 @@ class _DefectActionPageState extends State<DefectActionPage> {
     }
     final actionText = _descriptionController.text.trim();
     if (actionText.isEmpty) {
+      setState(() => isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a description before saving.'),
@@ -107,15 +114,15 @@ class _DefectActionPageState extends State<DefectActionPage> {
 
     // 2️⃣ Read supervisor name
     final prefs = await SharedPreferences.getInstance();
-    final supervisorName = prefs.getString('full_name') ?? '';
+    final supervisorName = (prefs.getString('full_name') ?? '').trim();
 
     // 3️⃣ POST with date_time
     final url = Uri.parse('https://esheapp.in/GE/App/set_defect_action.php');
     final payload = {
-      'rfid_no'        : widget.rfidNo,
-      'date_time'      : dateTime,
-      'question_key'   : questionKey,
-      'action_text'    : actionText,
+      'rfid_no': widget.rfidNo,
+      'date_time': dateTime,
+      'question_key': questionKey,
+      'action_text': actionText,
       'supervisor_name': supervisorName,
     };
 
@@ -129,8 +136,16 @@ class _DefectActionPageState extends State<DefectActionPage> {
       );
       debugPrint('💾 Solve [${resp.statusCode}]: ${resp.body}');
 
+      setState(() => isSubmitting = false);
+
       if (resp.statusCode != 200) {
-        throw Exception('Server error: ${resp.statusCode}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Server error: ${resp.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
       }
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final ok = data['success'] == true;
@@ -143,9 +158,11 @@ class _DefectActionPageState extends State<DefectActionPage> {
         ),
       );
       if (ok && mounted) {
-        _fetchDefectDetails(); // refresh
+        _descriptionController.clear(); // Optional: clear after save
+        _fetchDefectDetails(); // refresh list/details
       }
     } catch (e) {
+      setState(() => isSubmitting = false);
       debugPrint('❌ Solve error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -155,8 +172,6 @@ class _DefectActionPageState extends State<DefectActionPage> {
       );
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -190,8 +205,8 @@ class _DefectActionPageState extends State<DefectActionPage> {
         itemBuilder: (context, index) {
           final ins = inspections[index];
           final date = ins['date_time'] as String;
-          final op = ins['operator_name'] as String;
-          final rem = ins['remarks'] as String? ?? '';
+          final op = ins['operator_name'] as String? ?? '';
+          // REMOVE: final rem = ins['remarks'] as String? ?? '';
           final fails = (ins['defects_identified'] as List)
               .cast<Map<String, dynamic>>();
 
@@ -218,15 +233,12 @@ class _DefectActionPageState extends State<DefectActionPage> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Operator & remarks
+                  // Operator only (no global remarks)
                   Text('Operator: $op'),
-                  if (rem.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text('Remarks: $rem'),
-                  ],
+
                   const SizedBox(height: 12),
 
-                  // Defects list
+                  // Defects list with per-defect remark
                   const Text(
                     'Defects:',
                     style: TextStyle(fontWeight: FontWeight.w600),
@@ -239,27 +251,48 @@ class _DefectActionPageState extends State<DefectActionPage> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: fails.map((f) {
+                        final defectRemark = (f['remark'] as String?) ?? '';
                         return Padding(
                           padding:
                           const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  '• ${f['question_text']} '
-                                      '(Given: ${f['given_answer']}, '
-                                      'Expected: ${f['correct_answer']})',
-                                ),
+                              Row(
+                                mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '• ${f['question_text']} '
+                                          '(Given: ${f['given_answer']}, '
+                                          'Expected: ${f['correct_answer']})',
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        _solveDefectAt(
+                                          ins['date_time'] as String,
+                                          f['question_key'] as String,
+                                        ),
+                                    child: const Text('Solve'),
+                                  )
+                                ],
                               ),
-                              TextButton(
-                                onPressed: () => _solveDefectAt(
-                                  ins['date_time'] as String,
-                                  f['question_key'] as String,
+                              if (defectRemark.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 12),
+                                  child: Text(
+                                    'Remark: $defectRemark',
+                                    style: const TextStyle(
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.deepOrange,
+                                      fontSize: 14,
+                                    ),
+                                  ),
                                 ),
-                                child: const Text('Solve'),
-                              )
+                              ]
                             ],
                           ),
                         );
@@ -275,16 +308,14 @@ class _DefectActionPageState extends State<DefectActionPage> {
                         const Text(
                           'Completed',
                           style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600),
+                              fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                         Switch(
                           value: completed,
                           activeColor: Colors.white,
                           activeTrackColor: Colors.green.shade400,
                           inactiveThumbColor: Colors.white,
-                          inactiveTrackColor:
-                          Colors.grey.shade400,
+                          inactiveTrackColor: Colors.grey.shade400,
                           onChanged: (v) =>
                               setState(() => completed = v),
                         ),
@@ -324,13 +355,16 @@ class _DefectActionPageState extends State<DefectActionPage> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: ElevatedButton(
           onPressed: (completed &&
-              _descriptionController.text.trim().isNotEmpty &&
+              _descriptionController.text
+                  .trim()
+                  .isNotEmpty &&
               inspections.isNotEmpty &&
               (inspections.first['defects_identified'] as List).isNotEmpty)
               ? () {
             final firstIns = inspections.first;
-            final dt       = firstIns['date_time'] as String;
-            final key      = (firstIns['defects_identified'] as List).first['question_key'] as String;
+            final dt = firstIns['date_time'] as String;
+            final key = (firstIns['defects_identified'] as List)
+                .first['question_key'] as String;
             _solveDefectAt(dt, key);
           }
               : null,

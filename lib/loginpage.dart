@@ -131,13 +131,15 @@ class _LoginPageState extends State<LoginPage> {
   }
   Future<void> submitLogin() async {
     if (mobileController.text.trim().isEmpty || passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all fields!")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please fill all fields!")),
+        );
+      }
       return;
     }
 
-    const String apiUrl = "https://esheapp.in/GE/App/login.php"; // your URL
+    const String apiUrl = "https://esheapp.in/GE/App/login.php";
 
     try {
       final response = await http.post(
@@ -150,7 +152,6 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       print('Login API response: ${response.body}');
-
       final data = jsonDecode(response.body);
 
       if (data['success'] == true) {
@@ -163,9 +164,6 @@ class _LoginPageState extends State<LoginPage> {
         await prefs.setString('approval_type', user['approval_type'] ?? '');
         await prefs.setString('email', user['email'] ?? '');
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Welcome, ${user['fullname'] ?? user['full_name'] ?? ''}! Login successful.")),
-        );
         // Clear input fields:
         mobileController.clear();
         passwordController.clear();
@@ -173,36 +171,45 @@ class _LoginPageState extends State<LoginPage> {
         // === Category-based navigation ===
         final String category = (user['category'] ?? '').toString().toLowerCase();
 
+        Widget nextPage;
         if (category == 'operator') {
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const OperatorDashboard()));
+          nextPage = const OperatorDashboard();
         } else if (category == 'supervisor') {
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const SupervisorDashboard()));
+          nextPage = const SupervisorDashboard();
         } else if (category == 'area manager') {
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const AreaManagerDashboard()));
-        }else if (category == 'ehs manager') {
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const EhsmanagerDashboard()));
+          nextPage = const AreaManagerDashboard();
+        } else if (category == 'ehs manager') {
+          nextPage = const EhsmanagerDashboard();
         } else {
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (_) => const SupervisorDashboard()));
+          nextPage = const SupervisorDashboard();
         }
-        // ================================
+
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => nextPage),
+        );
+
+        // (Optional) If you really want a welcome message,
+        // consider showing it in the next page after navigation.
 
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data['message'] ?? "Login failed.")),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message'] ?? "Login failed.")),
+          );
+        }
       }
     } catch (e) {
       print('Login Exception: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +231,7 @@ class _LoginPageState extends State<LoginPage> {
                     radius: 54,
                     backgroundColor: Colors.white,
                     child: Image.asset(
-                      "assets/ge_logo.png", // Replace with your logo or use FlutterLogo
+                      "assets/GE_logo.png", // Replace with your logo or use FlutterLogo
                       width: 80,
                       height: 80,
                       errorBuilder: (context, error, stackTrace) =>
