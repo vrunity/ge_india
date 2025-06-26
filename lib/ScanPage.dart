@@ -440,7 +440,7 @@ class _OperatorDashboardState extends State<OperatorDashboard> {
                         ),
                       ),
                       onPressed: () {
-                        // TODO: Show help or support dialog
+                        // TODO: Show help or support
                       },
                     ),
                   ),
