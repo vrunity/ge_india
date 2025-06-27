@@ -3,6 +3,8 @@
 
     <!-- Permissions: -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Optional: If you want to access network state, uncomment below -->
     <!-- <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /> -->
 

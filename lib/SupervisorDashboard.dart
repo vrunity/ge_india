@@ -15,9 +15,13 @@ class SupervisorDashboard extends StatefulWidget {
 
 class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsBindingObserver {
   Timer? _poller;
+  String errorMsg = '';
   bool isLoading = false;
   bool isDueToday = false;
   List<Map<String, dynamic>> equipments = [];
+  List<Map<String, dynamic>> notifications = [];
+  bool isNotifLoading = false;
+  int unreadCount = 0;
 
   @override
   void initState() {
@@ -25,9 +29,12 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     _checkIfDueToday();
     _fetchSupervisorEquipments();
-
+    fetchNotifications();
     _poller = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) _fetchSupervisorEquipments();
+    });
+    _poller = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) fetchNotifications();
     });
   }
 
@@ -44,7 +51,115 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
       _fetchSupervisorEquipments();
     }
   }
+  Future<void> fetchNotifications() async {
+    setState(() => isNotifLoading = true);
 
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? '';
+    print('Fetching notifications for user_id (phone): $userId');
+
+    const String notifApiUrl = 'https://esheapp.in/GE/App/get_notifications.php';
+
+    try {
+      final response = await http.post(
+        Uri.parse(notifApiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({'user_id': userId}),
+      );
+
+      print('API status: ${response.statusCode}');
+      print('API body: ${response.body}');
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final data = jsonDecode(response.body);
+
+        if (data['success'] == true && data['notifications'] is List) {
+          // SAFEGUARD: Filter only unseen notifications, but backend should already do this
+          final notifList = List<Map<String, dynamic>>.from(data['notifications'])
+              .where((n) => n['is_seen'] == 0)
+              .toList();
+
+          setState(() {
+            notifications = notifList;
+            unreadCount = notifications.length;
+          });
+        } else {
+          setState(() {
+            notifications = [];
+            unreadCount = 0;
+          });
+        }
+      } else {
+        setState(() {
+          notifications = [];
+          unreadCount = 0;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        notifications = [];
+        unreadCount = 0;
+      });
+      print('Error fetching notifications: $e');
+    }
+    if (mounted) setState(() => isNotifLoading = false);
+  }
+
+
+  Future<void> sendNotificationReply(int notifId, String reply) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? ''; // Use 'phone' as the key
+
+    const String replyApiUrl = 'https://esheapp.in/GE/App/reply_to_notification.php';
+
+    try {
+      await http.post(
+        Uri.parse(replyApiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          'notification_id': notifId,
+          'reply_text': reply,
+          'user_id': userId, // This is the phone number now
+        }),
+      );
+    } catch (e) {
+      // handle error if you want
+      print('Error sending notification reply: $e');
+    }
+  }
+
+  void handleNotificationTap(Map<String, dynamic> notif) async {
+    // You may want to call a backend API here to mark as seen
+    setState(() {
+      notifications.removeWhere((n) => n['id'] == notif['id']);
+      unreadCount = notifications.where((n) => n['is_seen'] == 0).length;
+    });
+  }
+
+  Future<Map<String, dynamic>?> markNotificationAsSeen(int notifId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? '';
+    const String api = 'https://esheapp.in/GE/App/mark_notification_seen.php';
+    try {
+      final response = await http.post(
+        Uri.parse(api),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({'notification_id': notifId, 'user_id': userId}),
+      );
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final data = jsonDecode(response.body);
+        print('API response: $data'); // You can remove or replace this with UI code
+        return data;
+      } else {
+        print('API error: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error marking notification as seen: $e');
+      return null;
+    }
+  }
   Future<void> _checkIfDueToday() async {
     setState(() => isLoading = true);
     try {
@@ -259,9 +374,42 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
                 );
               }
           ),
-          const Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Icon(Icons.notifications, color: Color(0xFFFFFF00)),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications, color: Color(0xFFFFFF00)),
+                tooltip: 'Notifications',
+                onPressed: isNotifLoading
+                    ? null
+                    : () async {
+                  await fetchNotifications(); // always get latest!
+                  showNotificationDialog(context);
+                },
+              ),
+
+              if (unreadCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    child: Text(
+                      '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -284,33 +432,42 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
         itemBuilder: (context, index) {
           final eq = equipments[index];
 
-          // parse operator statuses
+          // Operator statuses
           Map<String, dynamic> operatorStatuses = {};
           if (eq['operator_statuses'] is Map) {
             operatorStatuses =
             Map<String, dynamic>.from(eq['operator_statuses'] as Map);
           }
-          final anyInspected =
-          operatorStatuses.values.any((v) => v == true);
 
-          // week/day info
+          // Week/day info
           final todayStr = eq['today_date'] as String? ?? '';
-          final weekdays = List<String>.from(
-              eq['weekdays'] ?? ['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+          final weekdays =
+          List<String>.from(eq['weekdays'] ?? ['M', 'T', 'W', 'T', 'F', 'S', 'S']);
           final todayDate = DateTime.tryParse(todayStr) ?? DateTime.now();
           final todayIndex = todayDate.weekday - 1;
 
           final inspections = List<bool>.from(
-              (eq['inspections'] as List<dynamic>?) ?? List.filled(7, false)
-          );
+              (eq['inspections'] as List<dynamic>?) ?? List.filled(7, false));
 
-          // local lockout
+          // Lockout info (disable_until = last-pressed + next due day)
           DateTime? unlockDate;
           final bool isLocked = eq['disable_until'] != null &&
               DateTime.now().isBefore(DateTime.parse(eq['disable_until']));
           if (isLocked) {
             unlockDate = DateTime.parse(eq['disable_until']);
           }
+
+          // Button logic: is today a due day?
+          final dueDates = List<String>.from(eq['due_dates'] ?? []);
+          final todayDay = todayDate.day;
+          final isDueToday = dueDates.contains(todayDay.toString());
+
+          // --- This logic: ---
+          // If locked => disable always
+          // If not locked && dueDates non-empty => enable (even if past due, until pressed)
+          // If not locked && dueDates empty     => disable
+
+          final canPress = !isLocked && dueDates.isNotEmpty;
 
           final defects = eq['defects_week'] as int? ?? 0;
           final btnLabel = isLocked && unlockDate != null
@@ -494,17 +651,20 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
                               icon: Icon(isLocked ? Icons.lock : Icons.check, color: Colors.white),
                               label: Text(btnLabel, style: const TextStyle(color: Colors.white)),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: (isLocked || !isDueToday)
-                                    ? Colors.grey.shade400
-                                    : Colors.green.shade600,
-                                elevation: isLocked ? 0 : 3,
+                                backgroundColor: canPress
+                                    ? Colors.green.shade600
+                                    : Colors.grey.shade400,
+                                elevation: canPress ? 3 : 0,
                                 padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 shadowColor: Colors.black12,
                               ),
-                              onPressed: (isLocked || !isDueToday)
-                                  ? null
-                                  : () => setCheckedOk(eq['rfid_no']!, eq['item_category']!),
+                              onPressed: canPress
+                                  ? () async {
+                                await setCheckedOk(eq['rfid_no']!, eq['item_category']!);
+                                setState(() {}); // to refresh lock status
+                              }
+                                  : null,
                             )
                         ),
                       ],
@@ -570,7 +730,112 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
             ),
           );
         },
-      ),
+      )
+    );
+  }
+  void showNotificationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Notifications"),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: notifications.isEmpty
+                    ? const Text('No notifications.')
+                    : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: notifications.length,
+                  itemBuilder: (context, index) {
+                    final notif = notifications[index];
+                    return Dismissible(
+                      key: Key(notif['id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      onDismissed: (direction) async {
+                        setState(() {
+                          notifications.removeAt(index);
+                          unreadCount = notifications.where((n) => n['is_seen'] == 0).length;
+                        });
+                        setDialogState(() {}); // If using StatefulBuilder in dialog
+                        await markNotificationAsSeen(notif['id']);
+                      },
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      child: ListTile(
+                        title: Text(notif['title'] ?? ''),
+                        subtitle: Text(notif['body'] ?? ''),
+                        trailing: notif['is_seen'] == 0
+                            ? const Icon(Icons.markunread, color: Colors.red)
+                            : null,
+                        onTap: () async {
+                          Navigator.of(context).pop(); // Close dialog
+                          await showReplyDialog(context, notif);
+                          await fetchNotifications(); // This also updates count if you call setState inside fetchNotifications
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+  Future<void> showReplyDialog(BuildContext context, Map<String, dynamic> notif) async {
+    final TextEditingController replyController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Reply to: ${notif['title']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(notif['body'] ?? ''),
+              const SizedBox(height: 10),
+              TextField(
+                controller: replyController,
+                decoration: const InputDecoration(hintText: 'Type your reply...'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final reply = replyController.text.trim();
+                if (reply.isNotEmpty) {
+                  await sendNotificationReply(notif['id'], reply);
+                  Navigator.of(context).pop();
+                  handleNotificationTap(notif); // <-- Move here to remove after reply!
+                }
+              },
+
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -11,15 +13,142 @@ class AreaManagerDashboard extends StatefulWidget {
   State<AreaManagerDashboard> createState() => _AreaManagerDashboardState();
 }
 
-class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
+class _AreaManagerDashboardState extends State<AreaManagerDashboard> with WidgetsBindingObserver{
   List<dynamic> equipments = [];
   bool isLoading = true;
   bool isDueToday = false;
+  Timer? _poller;
+  String errorMsg = '';
+  List<Map<String, dynamic>> notifications = [];
+  int unreadCount = 0;
+  bool isNotifLoading = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    fetchNotifications();
+    _poller = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) fetchNotifications();
+    });
     _checkIfDueToday();
     fetchAreaManagerEquipments();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _poller?.cancel();
+    super.dispose();
+  }
+  Future<void> fetchNotifications() async {
+    setState(() => isNotifLoading = true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? '';
+    print('Fetching notifications for user_id (phone): $userId');
+
+    const String notifApiUrl = 'https://esheapp.in/GE/App/get_notifications.php';
+
+    try {
+      final response = await http.post(
+        Uri.parse(notifApiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({'user_id': userId}),
+      );
+
+      print('API status: ${response.statusCode}');
+      print('API body: ${response.body}');
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final data = jsonDecode(response.body);
+
+        if (data['success'] == true && data['notifications'] is List) {
+          // SAFEGUARD: Filter only unseen notifications, but backend should already do this
+          final notifList = List<Map<String, dynamic>>.from(data['notifications'])
+              .where((n) => n['is_seen'] == 0)
+              .toList();
+
+          setState(() {
+            notifications = notifList;
+            unreadCount = notifications.length;
+          });
+        } else {
+          setState(() {
+            notifications = [];
+            unreadCount = 0;
+          });
+        }
+      } else {
+        setState(() {
+          notifications = [];
+          unreadCount = 0;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        notifications = [];
+        unreadCount = 0;
+      });
+      print('Error fetching notifications: $e');
+    }
+    if (mounted) setState(() => isNotifLoading = false);
+  }
+
+
+  Future<void> sendNotificationReply(int notifId, String reply) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? ''; // Use 'phone' as the key
+
+    const String replyApiUrl = 'https://esheapp.in/GE/App/reply_to_notification.php';
+
+    try {
+      await http.post(
+        Uri.parse(replyApiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          'notification_id': notifId,
+          'reply_text': reply,
+          'user_id': userId, // This is the phone number now
+        }),
+      );
+    } catch (e) {
+      // handle error if you want
+      print('Error sending notification reply: $e');
+    }
+  }
+
+  void handleNotificationTap(Map<String, dynamic> notif) async {
+    // You may want to call a backend API here to mark as seen
+    setState(() {
+      notifications.removeWhere((n) => n['id'] == notif['id']);
+      unreadCount = notifications.where((n) => n['is_seen'] == 0).length;
+    });
+  }
+
+  Future<Map<String, dynamic>?> markNotificationAsSeen(int notifId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('phone') ?? '';
+    const String api = 'https://esheapp.in/GE/App/mark_notification_seen.php';
+    try {
+      final response = await http.post(
+        Uri.parse(api),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({'notification_id': notifId, 'user_id': userId}),
+      );
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final data = jsonDecode(response.body);
+        print('API response: $data'); // You can remove or replace this with UI code
+        return data;
+      } else {
+        print('API error: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('Error marking notification as seen: $e');
+      return null;
+    }
   }
   Future<void> _checkIfDueToday() async {
     setState(() => isLoading = true);
@@ -231,9 +360,42 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
               );
             },
           ),
-          const Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Icon(Icons.notifications, color: Color(0xFFFFFF00)),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications, color: Color(0xFFFFFF00)),
+                tooltip: 'Notifications',
+                onPressed: isNotifLoading
+                    ? null
+                    : () async {
+                  await fetchNotifications(); // always get latest!
+                  showNotificationDialog(context);
+                },
+              ),
+
+              if (unreadCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    child: Text(
+                      '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -251,39 +413,44 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
         ),
       )
           : ListView.builder(
-        padding:
-        const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
         itemCount: equipments.length,
         itemBuilder: (context, index) {
           final eq = equipments[index];
 
-          // parse operator statuses
+          // Parse operator statuses
           Map<String, dynamic> operatorStatuses = {};
           if (eq['operator_statuses'] is Map) {
             operatorStatuses =
             Map<String, dynamic>.from(eq['operator_statuses'] as Map);
           }
-          final anyInspected =
-          operatorStatuses.values.any((v) => v == true);
 
-          // week/day info
+          // Week/day info
           final todayStr = eq['today_date'] as String? ?? '';
-          final weekdays = List<String>.from(eq['weekdays'] ??
-              ['M', 'T', 'W', 'T', 'F', 'S', 'S']);
-          final todayDate =
-              DateTime.tryParse(todayStr) ?? DateTime.now();
+          final weekdays = List<String>.from(
+              eq['weekdays'] ?? ['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+          final todayDate = DateTime.tryParse(todayStr) ?? DateTime.now();
           final todayIndex = todayDate.weekday - 1;
           final inspections = List<bool>.from(
-              (eq['inspections'] as List<dynamic>?) ?? List.filled(7, false)
-          );
+              (eq['inspections'] as List<dynamic>?) ?? List.filled(7, false));
 
-          // local lockout
+          // Local lockout
           DateTime? unlockDate;
           final bool isLocked = eq['disable_until'] != null &&
               DateTime.now().isBefore(DateTime.parse(eq['disable_until']));
           if (isLocked) {
             unlockDate = DateTime.parse(eq['disable_until']);
           }
+
+          // Due dates logic
+          final dueDates = List<String>.from(eq['due_dates'] ?? []);
+          final wasDueAtLeastOnce = dueDates.isNotEmpty;
+
+          // Button logic:
+          // Enabled if: not locked AND (was due at least once)
+          // Disabled if: locked OR (never due)
+          final canPress = !isLocked && wasDueAtLeastOnce;
+
           final defects = eq['defects_week'] as int? ?? 0;
           final btnLabel = isLocked && unlockDate != null
               ? "Checked until ${unlockDate.toLocal().toString().split(' ').first}"
@@ -296,15 +463,14 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.10),
+                  color: Colors.black,
                   blurRadius: 12,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 18, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -317,10 +483,7 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
                         Row(
                           children: [
                             Text(
-                              eq['item_category']
-                                  ?.toString()
-                                  .toUpperCase() ??
-                                  '',
+                              eq['item_category']?.toString().toUpperCase() ?? '',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 20,
@@ -380,8 +543,7 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
                           Wrap(
                             spacing: 10,
                             runSpacing: 6,
-                            children:
-                            operatorStatuses.entries.map((entry) {
+                            children: operatorStatuses.entries.map((entry) {
                               final name = entry.key;
                               final insp = entry.value as bool;
                               return Container(
@@ -441,10 +603,10 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
 
                             // choose background:
                             final bg = isFuture
-                                ? Colors.grey.shade200                   // future days
+                                ? Colors.grey.shade200 // future days
                                 : (didInspect
-                                ? Colors.green.shade300              // past/today inspected
-                                : Colors.red.shade300);              // past/today NOT inspected
+                                ? Colors.green.shade300 // past/today inspected
+                                : Colors.red.shade300); // past/today NOT inspected
 
                             return Container(
                               margin: const EdgeInsets.only(right: 6),
@@ -467,37 +629,51 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
                         // Checked OK button
                         const SizedBox(height: 16),
                         Align(
-                            alignment: Alignment.centerLeft,
-                            child: ElevatedButton.icon(
-                              icon: Icon(isLocked ? Icons.lock : Icons.check, color: Colors.white),
-                              label: Text(btnLabel, style: const TextStyle(color: Colors.white)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: (isLocked || !isDueToday)
-                                    ? Colors.grey.shade400
-                                    : Colors.green.shade600,
-                                elevation: isLocked ? 0 : 3,
-                                padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                shadowColor: Colors.black12,
-                              ),
-                              onPressed: (isLocked || !isDueToday)
-                                  ? null
-                                  : () => setCheckedOk(eq['rfid_no']!, eq['item_category']!),
-                            )
+                          alignment: Alignment.centerLeft,
+                          child: ElevatedButton.icon(
+                            icon: Icon(isLocked ? Icons.lock : Icons.check, color: Colors.white),
+                            label: Text(btnLabel, style: const TextStyle(color: Colors.white)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: canPress
+                                  ? Colors.green.shade600
+                                  : Colors.grey.shade400,
+                              elevation: canPress ? 3 : 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              shadowColor: Colors.black12,
+                            ),
+                            onPressed: canPress
+                                ? () async {
+                              await setCheckedOk(eq['rfid_no']!, eq['item_category']!);
+                              setState(() {}); // to refresh lock status
+                            }
+                                : null,
+                          ),
                         ),
                       ],
                     ),
                   ),
-
-                  // RIGHT: Defects box (now tappable)
+                  // RIGHT: Defects box (tappable only if defects > 0)
                   GestureDetector(
                     onTap: () {
+                      if (defects == 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('No defects to show'),
                             backgroundColor: Colors.orange,
                           ),
                         );
+                      }
+                      // else {
+                      //   // Navigator.of(context).push(
+                      //   //   MaterialPageRoute(
+                      //   //     builder: (_) => DefectActionPage(
+                      //   //       rfidNo: eq['rfid_no'] as String,
+                      //   //       itemCategory: eq['item_category'] as String,
+                      //   //     ),
+                      //   //   ),
+                      //   // );
+                      // }
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -537,7 +713,112 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> {
             ),
           );
         },
-      ),
+      )
+    );
+  }
+  void showNotificationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Notifications"),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: notifications.isEmpty
+                    ? const Text('No notifications.')
+                    : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: notifications.length,
+                  itemBuilder: (context, index) {
+                    final notif = notifications[index];
+                    return Dismissible(
+                      key: Key(notif['id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      onDismissed: (direction) async {
+                        setState(() {
+                          notifications.removeAt(index);
+                          unreadCount = notifications.where((n) => n['is_seen'] == 0).length;
+                        });
+                        setDialogState(() {}); // If using StatefulBuilder in dialog
+                        await markNotificationAsSeen(notif['id']);
+                      },
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      child: ListTile(
+                        title: Text(notif['title'] ?? ''),
+                        subtitle: Text(notif['body'] ?? ''),
+                        trailing: notif['is_seen'] == 0
+                            ? const Icon(Icons.markunread, color: Colors.red)
+                            : null,
+                        onTap: () async {
+                          Navigator.of(context).pop(); // Close dialog
+                          await showReplyDialog(context, notif);
+                          await fetchNotifications(); // This also updates count if you call setState inside fetchNotifications
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+  Future<void> showReplyDialog(BuildContext context, Map<String, dynamic> notif) async {
+    final TextEditingController replyController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Reply to: ${notif['title']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(notif['body'] ?? ''),
+              const SizedBox(height: 10),
+              TextField(
+                controller: replyController,
+                decoration: const InputDecoration(hintText: 'Type your reply...'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final reply = replyController.text.trim();
+                if (reply.isNotEmpty) {
+                  await sendNotificationReply(notif['id'], reply);
+                  Navigator.of(context).pop();
+                  handleNotificationTap(notif); // <-- Move here to remove after reply!
+                }
+              },
+
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

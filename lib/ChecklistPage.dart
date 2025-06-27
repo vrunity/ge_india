@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
-import 'CategoryListPage.dart';
-import 'loginpage.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 class ChecklistPage extends StatefulWidget {
   final String operatorName;
   final String rfidNo;
@@ -58,8 +55,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
       errorMsg = '';
     });
 
-    const String apiUrl =
-        'https://esheapp.in/GE/App/get_checklist_by_category.php';
+    const String apiUrl = 'https://esheapp.in/GE/App/get_checklist_by_category.php';
 
     try {
       final response = await http.post(
@@ -67,6 +63,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           'item_category': widget.itemCategory,
+          'rfid_no': widget.rfidNo, // Make sure widget.rfidNo is set!
         }),
       );
 
@@ -89,6 +86,126 @@ class _ChecklistPageState extends State<ChecklistPage> {
         return;
       }
 
+      // Handle checklist block for critical defect
+      if (data['block_critical'] == true) {
+        List<dynamic> defects = data['defects'] ?? [];
+
+        setState(() {
+          errorMsg = (data['title'] ?? 'Checklist Blocked');
+          isLoading = false;
+        });
+
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              titlePadding: const EdgeInsets.only(top: 20, left: 20, right: 20, bottom: 8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              title: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red[700], size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: Theme.of(context).textTheme.titleLarge!.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        children: [
+                          const TextSpan(
+                              text: 'Critical defect(s) found  equipment blocked by '),
+                          TextSpan(
+                              text: 'EHS team',
+                              style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.bold)),
+                          const TextSpan(text: '.'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...defects.map<Widget>((d) {
+                      String q = d['question'] ?? '';
+                      String r = d['remark'] ?? '';
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red[400], size: 22),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(q,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                        fontSize: 16,
+                                      )),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Remark: $r',
+                                    style: TextStyle(
+                                      color: Colors.grey[800],
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Please contact EHS team to resolve the critical defect(s).",
+                      style: TextStyle(
+                        color: Colors.red[800],
+                        fontWeight: FontWeight.w500,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.red[700],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  },
+                  child: const Text('OK', style: TextStyle(letterSpacing: 1)),
+                )
+              ],
+            );
+          },
+        );
+        return;
+      }
+
       if (data['success'] == true && data['questions'] is List) {
         setState(() {
           questions = List<Map<String, dynamic>>.from(data['questions']);
@@ -108,97 +225,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
     }
   }
 
-  Future<void> submitChecklist() async {
-    setState(() => isSubmitting = true);
 
-    // 1️⃣ Build q1, q2 ... mapping in checklist display order!
-    final Map<String, String> convertedAnswers = {};
-    final Map<String, String> convertedRemarks = {};
-
-    for (int idx = 0; idx < questions.length; idx++) {
-      final qKey = 'q${idx + 1}';
-      final questionId = questions[idx]['id'].toString();
-      final answer = answers[questionId];
-      final remark = remarksMap[questionId];
-
-      if (answer != null) {
-        convertedAnswers[qKey] = answer;
-      }
-      if (remark != null && remark
-          .trim()
-          .isNotEmpty) {
-        convertedRemarks[qKey] = remark.trim();
-      }
-    }
-
-    const apiUrl = 'https://esheapp.in/GE/App/inspection_checklist.php';
-
-    try {
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          'operator_name': widget.operatorName,
-          'rfid_no': widget.rfidNo,
-          'answers': convertedAnswers,
-          'remarks': convertedRemarks,
-        }),
-      );
-
-      debugPrint('🛰️ submitChecklist → status ${response.statusCode}');
-      debugPrint('🛰️ submitChecklist → body   ${response.body}');
-
-      setState(() => isSubmitting = false);
-
-      if (!mounted) return;
-
-      if (response.statusCode != 200 || response.body.isEmpty) {
-        await showDialog(
-          context: context,
-          builder: (_) =>
-              AlertDialog(
-                title: const Text("Error"),
-                content: const Text(
-                    "Server error or empty response. Please try again."),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text("OK"),
-                  )
-                ],
-              ),
-        );
-        return;
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      await showDialog(
-        context: context,
-        builder: (_) =>
-            AlertDialog(
-              title: Text(data['success'] == true ? "Success" : "Error"),
-              content: Text(data['message'] ?? "Unknown response"),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    if (data['success'] == true) {
-                      Navigator.of(context).maybePop();
-                    }
-                  },
-                  child: const Text("OK"),
-                )
-              ],
-            ),
-      );
-    } catch (e) {
-      setState(() => isSubmitting = false);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submission error: $e')),
-      );
-    }
-  }
   bool isChecklistValid() {
     for (final q in questions) {
       final qId = q['id'].toString();
@@ -217,8 +244,9 @@ class _ChecklistPageState extends State<ChecklistPage> {
 
   @override
   Widget build(BuildContext context) {
-    // For scrolling to first missing remark if validation fails:
     final _scrollController = ScrollController();
+
+    // Ensure each remark field has a controller (if not, create one)
     for (final q in questions) {
       final qId = q['id'].toString();
       if (!remarkControllers.containsKey(qId)) {
@@ -237,17 +265,16 @@ class _ChecklistPageState extends State<ChecklistPage> {
       }
       await showDialog(
         context: context,
-        builder: (_) =>
-            AlertDialog(
-              title: const Text("Incomplete"),
-              content: Text(message),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text("OK"),
-                ),
-              ],
+        builder: (_) => AlertDialog(
+          title: const Text("Incomplete"),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK"),
             ),
+          ],
+        ),
       );
     }
 
@@ -265,7 +292,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
       }
       setState(() => isSubmitting = true);
 
-      // Validation: check that all defect answers have a remark
+      // Validation: all defect answers must have a remark
       for (int idx = 0; idx < questions.length; idx++) {
         final q = questions[idx];
         final qId = q['id'].toString();
@@ -275,30 +302,22 @@ class _ChecklistPageState extends State<ChecklistPage> {
           final remark = remarkControllers[qId]?.text.trim() ?? '';
           if (remark.isEmpty) {
             setState(() => isSubmitting = false);
-            showValidationError("Please enter a remark for all defect answers.",
-                scrollToIndex: idx);
+            showValidationError("Please enter a remark for all defect answers.", scrollToIndex: idx);
             return;
           }
         }
       }
 
-      // Build answers and remarks mapped by question ID (string)
+      // Build answers and remarks to send
       final Map<String, String> convertedAnswers = {};
       final Map<String, String> convertedRemarks = {};
 
-      for (int idx = 0; idx < questions.length; idx++) {
-        final q = questions[idx];
+      for (final q in questions) {
         final qId = q['id'].toString();
         final answer = answers[qId];
         final remark = remarkControllers[qId]?.text.trim();
-        final isCritical = q['critical'] == 1 || q['critical'] == "1";
-
         if (answer != null) convertedAnswers[qId] = answer;
-
         if (remark != null && remark.isNotEmpty) {
-          // Optionally add [critical] prefix on the client as well (not required if PHP is handling)
-          // final remarkToSend = isCritical ? "[critical] $remark" : remark;
-          // convertedRemarks[qId] = remarkToSend;
           convertedRemarks[qId] = remark;
         }
       }
@@ -306,51 +325,68 @@ class _ChecklistPageState extends State<ChecklistPage> {
       const apiUrl = 'https://esheapp.in/GE/App/inspection_checklist.php';
 
       try {
+        // GET PHONE FROM SHARED PREFERENCES
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        final phoneNumber = prefs.getString('phone') ?? '';
+        // Debug print: What is stored in shared preferences?
+        print("Loaded phoneNumber from SharedPreferences: $phoneNumber");
+
+        // Build the payload
+        final Map<String, dynamic> payload = {
+          'operator_name': widget.operatorName,
+          'rfid_no': widget.rfidNo,
+          'answers': convertedAnswers,
+          'remarks': convertedRemarks,
+          'phone': phoneNumber,
+        };
+
+        // Debug print: Full API payload
+        print("API Payload: ${jsonEncode(payload)}");
+
         final response = await http.post(
           Uri.parse(apiUrl),
           headers: {"Content-Type": "application/json"},
-          body: jsonEncode({
-            'operator_name': widget.operatorName,
-            'rfid_no': widget.rfidNo,
-            'answers': convertedAnswers,
-            'remarks': convertedRemarks,
-          }),
+          body: jsonEncode(payload),
         );
 
         setState(() => isSubmitting = false);
 
         if (!mounted) return;
 
-        final data = response.body.isNotEmpty ? jsonDecode(response.body) as Map<String, dynamic> : {};
+        // Debug print: API response
+        print("API Response: ${response.body}");
+
+        final data = response.body.isNotEmpty
+            ? jsonDecode(response.body) as Map<String, dynamic>
+            : {};
+
         await showDialog(
           context: context,
-          builder: (_) =>
-              AlertDialog(
-                title: Text(data['success'] == true ? "Success" : "Error"),
-                content: Text(data['message'] ?? "Unknown response"),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      if (data['success'] == true) {
-                        Navigator.of(context).maybePop();
-                      }
-                    },
-                    child: const Text("OK"),
-                  )
-                ],
-              ),
+          builder: (_) => AlertDialog(
+            title: Text(data['success'] == true ? "Success" : "Error"),
+            content: Text(data['message'] ?? "Unknown response"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (data['success'] == true) {
+                    Navigator.of(context).maybePop();
+                  }
+                },
+                child: const Text("OK"),
+              )
+            ],
+          ),
         );
-      } catch (e) {
+      } catch (e, stacktrace) {
         setState(() => isSubmitting = false);
         if (!mounted) return;
+        print("Submission error: $e\n$stacktrace");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Submission error: $e')),
         );
       }
     }
-
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Checklist'),
@@ -369,7 +405,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
-          // Header info
+          // Header
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -381,8 +417,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
               children: [
                 Text(
                   "Operator: ${widget.operatorName}",
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 16),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -396,29 +431,26 @@ class _ChecklistPageState extends State<ChecklistPage> {
                 ),
                 Text(
                   "Description: ${widget.description}",
-                  style: const TextStyle(  fontWeight: FontWeight.w500,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
                     fontStyle: FontStyle.italic,
                     color: Colors.teal,
                   ),
                 )
               ],
-
             ),
           ),
           const Divider(height: 32),
 
-          // ─── QUESTION CARDS ─────────────────────────
-          ...questions
-              .asMap()
-              .entries
-              .map((entry) {
+          // Questions
+          ...questions.asMap().entries.map((entry) {
             final idx = entry.key;
             final q = entry.value;
             final qId = q['id'].toString();
             final questionText = q['question'] as String;
             final a = q['option_a'] as String;
             final b = q['option_b'] as String;
-            final correctOption = q['correct_option'] as String; // "A" or "B"
+            final correctOption = q['correct_option'] as String;
             final userAnswer = answers[qId];
             final isDefect = userAnswer != null && userAnswer != correctOption;
             final controller = remarkControllers[qId]!;
@@ -440,7 +472,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- QUESTION WITH CRITICAL ASTERISK ---
+                    // --- QUESTION TITLE WITH CRITICAL ASTERISK ---
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -497,6 +529,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
                             onSelected: (_) {
                               setState(() {
                                 answers[qId] = "B";
+                                if (controller.text.isNotEmpty) {
+                                  controller.clear();
+                                  remarksMap[qId] = "";
+                                }
                               });
                             },
                             selectedColor: Colors.redAccent,
@@ -511,7 +547,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
                     const SizedBox(height: 16),
                     if (isDefect)
                       TextField(
-                        controller: remarkControllers[qId],
+                        controller: controller,
                         onChanged: (txt) {
                           setState(() => remarksMap[qId] = txt);
                         },
@@ -544,7 +580,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
           }),
           const SizedBox(height: 24),
 
-          // ─── SUBMIT BUTTON ────────────────────────────
+          // Submit Button
           isSubmitting
               ? const Center(child: CircularProgressIndicator())
               : ElevatedButton.icon(

@@ -85,23 +85,12 @@ class _DefectActionPageState extends State<DefectActionPage> {
 
   bool isSubmitting = false; // Add in your State class
 
-  Future<void> _solveDefectAt(String dateTime, String questionKey) async {
-    if (isSubmitting) return;
+  Future<bool> _solveDefectAt(String dateTime, String questionKey, String actionText) async {
+    if (isSubmitting) return false;
     setState(() => isSubmitting = true);
 
-    // 1️⃣ VALIDATION
-    if (!completed) {
-      setState(() => isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please toggle “Completed” before saving.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    final actionText = _descriptionController.text.trim();
-    if (actionText.isEmpty) {
+    // 1️⃣ Validation
+    if (actionText.trim().isEmpty) {
       setState(() => isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -109,20 +98,20 @@ class _DefectActionPageState extends State<DefectActionPage> {
           backgroundColor: Colors.red,
         ),
       );
-      return;
+      return false;
     }
 
-    // 2️⃣ Read supervisor name
+    // 2️⃣ Read supervisor name from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final supervisorName = (prefs.getString('full_name') ?? '').trim();
 
-    // 3️⃣ POST with date_time
+    // 3️⃣ Compose payload for POST
     final url = Uri.parse('https://esheapp.in/GE/App/set_defect_action.php');
     final payload = {
-      'rfid_no': widget.rfidNo,
+      'rfid_no': widget.rfidNo,        // Ensure your widget has rfidNo
       'date_time': dateTime,
       'question_key': questionKey,
-      'action_text': actionText,
+      'action_text': actionText.trim(),
       'supervisor_name': supervisorName,
     };
 
@@ -145,8 +134,9 @@ class _DefectActionPageState extends State<DefectActionPage> {
             backgroundColor: Colors.red,
           ),
         );
-        return;
+        return false;
       }
+
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final ok = data['success'] == true;
       final msg = data['message'] ?? (ok ? 'Solved' : 'Failed');
@@ -158,9 +148,9 @@ class _DefectActionPageState extends State<DefectActionPage> {
         ),
       );
       if (ok && mounted) {
-        _descriptionController.clear(); // Optional: clear after save
-        _fetchDefectDetails(); // refresh list/details
+        _fetchDefectDetails(); // refresh defect list/details
       }
+      return ok;
     } catch (e) {
       setState(() => isSubmitting = false);
       debugPrint('❌ Solve error: $e');
@@ -170,8 +160,10 @@ class _DefectActionPageState extends State<DefectActionPage> {
           backgroundColor: Colors.red,
         ),
       );
+      return false;
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -189,6 +181,7 @@ class _DefectActionPageState extends State<DefectActionPage> {
             fontSize: 22,
           ),
         ),
+        centerTitle: true,
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -200,226 +193,206 @@ class _DefectActionPageState extends State<DefectActionPage> {
         ),
       )
           : ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
         itemCount: inspections.length,
         itemBuilder: (context, index) {
           final ins = inspections[index];
           final date = ins['date_time'] as String;
           final op = ins['operator_name'] as String? ?? '';
-          // REMOVE: final rem = ins['remarks'] as String? ?? '';
           final fails = (ins['defects_identified'] as List)
               .cast<Map<String, dynamic>>();
+          final defectActions = ins['defect_action'] as Map<String, dynamic>? ?? {};
 
           return Card(
-            margin: const EdgeInsets.only(bottom: 16),
+            margin: const EdgeInsets.only(bottom: 18),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
             elevation: 4,
+            color: Colors.white,
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Date header
-                  Text(
-                    date
-                        .split(' ')
-                        .first,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  // Header row with date and operator
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, color: Colors.teal[400], size: 18),
+                      const SizedBox(width: 7),
+                      Text(
+                        date.split(' ').first,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF009688),
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.person, size: 18, color: Colors.teal[300]),
+                      const SizedBox(width: 3),
+                      Text(
+                        op,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF888888),
+                        ),
+                      ),
+                    ],
                   ),
+                  const Divider(height: 22, color: Colors.teal),
                   const SizedBox(height: 8),
 
-                  // Operator only (no global remarks)
-                  Text('Operator: $op'),
-
-                  const SizedBox(height: 12),
-
-                  // Defects list with per-defect remark
                   const Text(
                     'Defects:',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 16, color: Colors.red),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 7),
+
                   if (fails.isEmpty)
-                    const Text('None',
-                        style: TextStyle(color: Colors.green))
+                    const Text('None', style: TextStyle(color: Colors.green, fontSize: 15))
                   else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: fails.map((f) {
-                        final defectRemark = (f['remark'] as String?) ?? '';
-                        return Padding(
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 4),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      '• ${f['question_text']} '
-                                          '(Given: ${f['given_answer']}, '
-                                          'Expected: ${f['correct_answer']})',
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: () =>
-                                        _solveDefectAt(
-                                          ins['date_time'] as String,
-                                          f['question_key'] as String,
-                                        ),
-                                    child: const Text('Solve'),
-                                  )
-                                ],
-                              ),
-                              if (defectRemark.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 12),
+                    ...fails.map((f) {
+                      final qKey = f['question_key'] as String;
+                      final questionText = f['question_text'] as String;
+                      final defectRemark = (f['remark'] as String?) ?? '';
+                      final previousAction = defectActions[qKey] as Map<String, dynamic>?;
+
+                      // Use controller for each defect description
+                      final TextEditingController controller =
+                      defectControllers.putIfAbsent(qKey, () => TextEditingController());
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                              color: Colors.redAccent.withOpacity(0.3), width: 1.1),
+                          borderRadius: BorderRadius.circular(13),
+                          color: Colors.red[50]?.withOpacity(0.13),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                                const SizedBox(width: 6),
+                                Expanded(
                                   child: Text(
-                                    'Remark: $defectRemark',
+                                    '$questionText\n(Given: ${f['given_answer']} | Expected: ${f['correct_answer']})',
                                     style: const TextStyle(
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.deepOrange,
-                                      fontSize: 14,
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
-                              ]
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                              ],
+                            ),
+                            if (defectRemark.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6, top: 8),
+                                child: Text(
+                                  'Remark: $defectRemark',
+                                  style: const TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.deepOrange,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 10),
 
-                  // Completed switch & description only for the first (most recent) item
-                  if (index == 0) ...[
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Completed',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600),
+                            // Description input and Solve button
+                            if (previousAction == null) ...[
+                              TextField(
+                                controller: controller,
+                                maxLines: 3,
+                                decoration: InputDecoration(
+                                  hintText: 'Describe action taken…',
+                                  filled: true,
+                                  fillColor: Colors.grey.shade100,
+                                  contentPadding: const EdgeInsets.all(12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    final txt = controller.text.trim();
+                                    if (txt.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                              content: Text("Please enter action description")));
+                                      return;
+                                    }
+                                    _solveDefectAt(date, qKey, txt);
+                                  },
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('Solve'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green.shade600,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10, horizontal: 24),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(9)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            // Show last solved action if available
+                            if (previousAction != null) ...[
+                              const SizedBox(height: 7),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.green[50],
+                                  border: Border.all(color: Colors.green, width: 1),
+                                  borderRadius: BorderRadius.circular(7),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Solved: ${previousAction['action']}",
+                                      style: const TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (previousAction['solve_time'] != null)
+                                      Text(
+                                        "at ${previousAction['solve_time']}",
+                                        style: const TextStyle(
+                                          color: Colors.green,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ]
+                          ],
                         ),
-                        Switch(
-                          value: completed,
-                          activeColor: Colors.white,
-                          activeTrackColor: Colors.green.shade400,
-                          inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: Colors.grey.shade400,
-                          onChanged: (v) =>
-                              setState(() => completed = v),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Description / Remarks',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _descriptionController,
-                      maxLines: 4,
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: Colors.grey.shade100,
-                        contentPadding: const EdgeInsets.all(12),
-                        hintText: 'Enter any additional notes…',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ],
+                      );
+                    }).toList(),
                 ],
               ),
             ),
           );
         },
       ),
-      floatingActionButtonLocation:
-      FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: ElevatedButton(
-          onPressed: (completed &&
-              _descriptionController.text
-                  .trim()
-                  .isNotEmpty &&
-              inspections.isNotEmpty &&
-              (inspections.first['defects_identified'] as List).isNotEmpty)
-              ? () {
-            final firstIns = inspections.first;
-            final dt = firstIns['date_time'] as String;
-            final key = (firstIns['defects_identified'] as List)
-                .first['question_key'] as String;
-            _solveDefectAt(dt, key);
-          }
-              : null,
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-            backgroundColor: (completed &&
-                _descriptionController.text
-                    .trim()
-                    .isNotEmpty &&
-                inspections.isNotEmpty &&
-                (inspections.first['defects_identified'] as List)
-                    .isNotEmpty)
-                ? const Color(0xFFC0FF33)
-                : Colors.grey,
-          ),
-          child: const Text(
-            'Save',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF009688),
-            ),
-          ),
-        ),
-      ),
     );
   }
-
-// Helper for detail rows:
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              '$label:',
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 5,
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 15),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+// Controller Map (put this in your State class)
+  final Map<String, TextEditingController> defectControllers = {};
 }
