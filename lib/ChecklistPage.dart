@@ -28,6 +28,9 @@ class _ChecklistPageState extends State<ChecklistPage> {
   Map<String, String> answers = {};
   Map<String, String> remarksMap = {};
 
+  /// 'en' or 'ta'
+  String _selectedLanguage = 'en';
+
   // NEW: controller for remarks
   final TextEditingController _remarksController = TextEditingController();
 
@@ -37,7 +40,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
     fetchChecklistQuestions();
     for (final q in questions) {
       final qId = q['id'].toString();
-      remarkControllers[qId] = TextEditingController(text: remarksMap[qId] ?? '');
+      remarkControllers[qId] =
+          TextEditingController(text: remarksMap[qId] ?? '');
+      // Ask language immediately
+      WidgetsBinding.instance.addPostFrameCallback((_) => _chooseLanguage());
     }
   }
 
@@ -47,6 +53,36 @@ class _ChecklistPageState extends State<ChecklistPage> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _chooseLanguage() async {
+    final lang = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) =>
+          AlertDialog(
+            title: const Text('Select Language'),
+            content: const Text('இது தமிழ் / This is English'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop('ta'),
+                child: const Text('தமிழ்'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop('en'),
+                child: const Text('English'),
+              ),
+            ],
+          ),
+    );
+
+    if (lang != null) {
+      setState(() {
+        _selectedLanguage = lang;
+        isLoading = true;
+      });
+      await fetchChecklistQuestions();
+    }
   }
 
   Future<void> fetchChecklistQuestions() async {
@@ -64,6 +100,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
         body: jsonEncode({
           'item_category': widget.itemCategory,
           'rfid_no': widget.rfidNo, // Make sure widget.rfidNo is set!
+          'language': _selectedLanguage,
         }),
       );
 
@@ -100,17 +137,25 @@ class _ChecklistPageState extends State<ChecklistPage> {
           barrierDismissible: false,
           builder: (ctx) {
             return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              titlePadding: const EdgeInsets.only(top: 20, left: 20, right: 20, bottom: 8),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18)),
+              titlePadding: const EdgeInsets.only(
+                  top: 20, left: 20, right: 20, bottom: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20, vertical: 16),
               title: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.red[700], size: 28),
+                  Icon(Icons.warning_amber_rounded, color: Colors.red[700],
+                      size: 28),
                   const SizedBox(width: 12),
                   Expanded(
                     child: RichText(
                       text: TextSpan(
-                        style: Theme.of(context).textTheme.titleLarge!.copyWith(
+                        style: Theme
+                            .of(context)
+                            .textTheme
+                            .titleLarge!
+                            .copyWith(
                           fontWeight: FontWeight.w600,
                         ),
                         children: [
@@ -118,7 +163,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                               text: 'Critical defect(s) found  equipment blocked by '),
                           TextSpan(
                               text: 'EHS team',
-                              style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.bold)),
+                              style: TextStyle(color: Colors.red[700],
+                                  fontWeight: FontWeight.bold)),
                           const TextSpan(text: '.'),
                         ],
                       ),
@@ -143,7 +189,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red[400], size: 22),
+                            Icon(Icons.error_outline, color: Colors.red[400],
+                                size: 22),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Column(
@@ -190,7 +237,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 12),
                     textStyle: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   onPressed: () {
@@ -226,17 +274,17 @@ class _ChecklistPageState extends State<ChecklistPage> {
   }
 
 
+  /// 1) Make sure your “all answered + remarks” check uses controller.text
   bool isChecklistValid() {
     for (final q in questions) {
       final qId = q['id'].toString();
-      final correctOption = q['correct_option'] as String;
-      final userAnswer = answers[qId];
-
-      if (userAnswer == null) return false; // not all answered
-
-      if (userAnswer != correctOption) {
-        final remark = remarksMap[qId]?.trim() ?? '';
-        if (remark.isEmpty) return false; // defect answer missing remark
+      final answer = answers[qId];
+      // 1a) Every question must have an answer
+      if (answer == null) return false;
+      // 1b) If the answer is a defect, its remark controller must be non-empty
+      if (answer != q['correct_option']) {
+        final remark = remarkControllers[qId]?.text.trim() ?? '';
+        if (remark.isEmpty) return false;
       }
     }
     return true;
@@ -246,19 +294,19 @@ class _ChecklistPageState extends State<ChecklistPage> {
   Widget build(BuildContext context) {
     final _scrollController = ScrollController();
 
-    // Ensure each remark field has a controller (if not, create one)
+    // ensure controllers exist
     for (final q in questions) {
       final qId = q['id'].toString();
-      if (!remarkControllers.containsKey(qId)) {
-        remarkControllers[qId] = TextEditingController(text: remarksMap[qId] ?? '');
-      }
+      remarkControllers.putIfAbsent(qId, () => TextEditingController());
     }
 
-    void showValidationError(String message, {int? scrollToIndex}) async {
+    void showValidationError(String msg, {int? scrollToIndex}) async {
       if (scrollToIndex != null && _scrollController.hasClients) {
         _scrollController.animateTo(
           (scrollToIndex * 140.0).clamp(
-              0.0, _scrollController.position.maxScrollExtent),
+            0.0,
+            _scrollController.position.maxScrollExtent,
+          ),
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeInOut,
         );
@@ -267,22 +315,22 @@ class _ChecklistPageState extends State<ChecklistPage> {
         context: context,
         builder: (_) => AlertDialog(
           title: const Text("Incomplete"),
-          content: Text(message),
+          content: Text(msg),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("OK"),
-            ),
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("OK")),
           ],
         ),
       );
     }
 
     Future<void> submitChecklist() async {
+      // 1. Quick validity check
       if (!isChecklistValid()) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Please answer all questions and enter remarks for all defect answers.'),
+          const SnackBar(
+            content: Text(
+              'Please answer all questions and enter remarks for all defect answers.',
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             margin: EdgeInsets.all(16),
@@ -290,9 +338,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
         );
         return;
       }
-      setState(() => isSubmitting = true);
 
-      // Validation: all defect answers must have a remark
+      // 2. Ensure all defect answers have a remark, scrolling to the first missing one
       for (int idx = 0; idx < questions.length; idx++) {
         final q = questions[idx];
         final qId = q['id'].toString();
@@ -302,49 +349,49 @@ class _ChecklistPageState extends State<ChecklistPage> {
           final remark = remarkControllers[qId]?.text.trim() ?? '';
           if (remark.isEmpty) {
             setState(() => isSubmitting = false);
-            showValidationError("Please enter a remark for all defect answers.", scrollToIndex: idx);
+            showValidationError(
+              "Please enter a remark for all defect answers.",
+              scrollToIndex: idx,
+            );
             return;
           }
         }
       }
 
-      // Build answers and remarks to send
+      setState(() => isSubmitting = true);
+
+      // 3. Build the maps of answers & remarks from controllers
       final Map<String, String> convertedAnswers = {};
       final Map<String, String> convertedRemarks = {};
-
       for (final q in questions) {
         final qId = q['id'].toString();
         final answer = answers[qId];
-        final remark = remarkControllers[qId]?.text.trim();
-        if (answer != null) convertedAnswers[qId] = answer;
-        if (remark != null && remark.isNotEmpty) {
-          convertedRemarks[qId] = remark;
+        final remarkText = remarkControllers[qId]?.text.trim() ?? '';
+        if (answer != null) {
+          convertedAnswers[qId] = answer;
+          if (answer != q['correct_option'] && remarkText.isNotEmpty) {
+            convertedRemarks[qId] = remarkText;
+          }
         }
       }
 
-      const apiUrl = 'https://esheapp.in/GE/App/inspection_checklist.php';
+      // 4. Load phone number from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final phoneNumber = prefs.getString('phone') ?? '';
+
+      // 5. Assemble payload
+      final payload = {
+        'operator_name': widget.operatorName,
+        'rfid_no': widget.rfidNo,
+        'answers': convertedAnswers,
+        'remarks': convertedRemarks,
+        'phone': phoneNumber,
+      };
 
       try {
-        // GET PHONE FROM SHARED PREFERENCES
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        final phoneNumber = prefs.getString('phone') ?? '';
-        // Debug print: What is stored in shared preferences?
-        print("Loaded phoneNumber from SharedPreferences: $phoneNumber");
-
-        // Build the payload
-        final Map<String, dynamic> payload = {
-          'operator_name': widget.operatorName,
-          'rfid_no': widget.rfidNo,
-          'answers': convertedAnswers,
-          'remarks': convertedRemarks,
-          'phone': phoneNumber,
-        };
-
-        // Debug print: Full API payload
-        print("API Payload: ${jsonEncode(payload)}");
-
+        // 6. Send to server
         final response = await http.post(
-          Uri.parse(apiUrl),
+          Uri.parse('https://esheapp.in/GE/App/inspection_checklist.php'),
           headers: {"Content-Type": "application/json"},
           body: jsonEncode(payload),
         );
@@ -353,9 +400,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
 
         if (!mounted) return;
 
-        // Debug print: API response
-        print("API Response: ${response.body}");
-
+        // 7. Parse and show result dialog
         final data = response.body.isNotEmpty
             ? jsonDecode(response.body) as Map<String, dynamic>
             : {};
@@ -369,9 +414,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  if (data['success'] == true) {
-                    Navigator.of(context).maybePop();
-                  }
+                  if (data['success'] == true) Navigator.of(context).maybePop();
                 },
                 child: const Text("OK"),
               )
@@ -379,14 +422,17 @@ class _ChecklistPageState extends State<ChecklistPage> {
           ),
         );
       } catch (e, stacktrace) {
+        // 8. Handle network or JSON errors
         setState(() => isSubmitting = false);
         if (!mounted) return;
+
         print("Submission error: $e\n$stacktrace");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Submission error: $e')),
         );
       }
     }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Checklist'),
@@ -395,17 +441,47 @@ class _ChecklistPageState extends State<ChecklistPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : errorMsg.isNotEmpty
-          ? Center(
-        child: Text(
-          errorMsg,
-          style: const TextStyle(fontSize: 16, color: Colors.red),
-        ),
-      )
+          ? Center(child: Text(errorMsg, style: const TextStyle(color: Colors.red)))
           : ListView(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
-          // Header
+          // ── LANGUAGE PICKER ──
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ChoiceChip(
+                label: const Text('English'),
+                selected: _selectedLanguage == 'en',
+                onSelected: (on) {
+                  if (on && _selectedLanguage != 'en') {
+                    setState(() {
+                      _selectedLanguage = 'en';
+                      isLoading = true;
+                    });
+                    fetchChecklistQuestions();
+                  }
+                },
+              ),
+              const SizedBox(width: 12),
+              ChoiceChip(
+                label: const Text('தமிழ்'),
+                selected: _selectedLanguage == 'ta',
+                onSelected: (on) {
+                  if (on && _selectedLanguage != 'ta') {
+                    setState(() {
+                      _selectedLanguage = 'ta';
+                      isLoading = true;
+                    });
+                    fetchChecklistQuestions();
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // ── HEADER ──
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -415,46 +491,40 @@ class _ChecklistPageState extends State<ChecklistPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Operator: ${widget.operatorName}",
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                ),
+                Text("Operator: ${widget.operatorName}",
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
-                Text(
-                  "Equipment: ${widget.itemCategory}",
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                Text("Equipment: ${widget.itemCategory}",
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
-                Text(
-                  "RFID: ${widget.rfidNo}",
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  "Description: ${widget.description}",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontStyle: FontStyle.italic,
-                    color: Colors.teal,
-                  ),
-                )
+                Text("RFID: ${widget.rfidNo}",
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text("Description: ${widget.description}",
+                    style: const TextStyle(
+                      fontStyle: FontStyle.italic,
+                      color: Colors.teal,
+                    )),
               ],
             ),
           ),
           const Divider(height: 32),
 
-          // Questions
+          // ── QUESTIONS ──
           ...questions.asMap().entries.map((entry) {
             final idx = entry.key;
-            final q = entry.value;
+            final q   = entry.value;
             final qId = q['id'].toString();
-            final questionText = q['question'] as String;
-            final a = q['option_a'] as String;
-            final b = q['option_b'] as String;
-            final correctOption = q['correct_option'] as String;
-            final userAnswer = answers[qId];
-            final isDefect = userAnswer != null && userAnswer != correctOption;
-            final controller = remarkControllers[qId]!;
-            final isCritical = (q['critical'] == 1 || q['critical'] == '1');
+
+            // null-safe casts here:
+            final questionText = (q['question'] ?? '').toString();
+            final a            = (q['option_a'] ?? '').toString();
+            final b            = (q['option_b'] ?? '').toString();
+            final correct      = (q['correct_option'] ?? 'A').toString();
+            final userAnswer   = answers[qId];
+            final isDefect     = userAnswer != null && userAnswer != correct;
+            final isCritical   = (q['critical'] == 1 || q['critical'] == '1');
+            final ctl          = remarkControllers[qId]!;
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 10),
@@ -468,30 +538,22 @@ class _ChecklistPageState extends State<ChecklistPage> {
                 ),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(20.0),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- QUESTION TITLE WITH CRITICAL ASTERISK ---
+                    // question
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (isCritical) ...[
-                          Text(
-                            '* ',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 19,
-                            ),
-                          ),
-                        ],
+                        if (isCritical)
+                          const Text('* ',
+                              style: TextStyle(color: Colors.red, fontSize: 20)),
                         Expanded(
                           child: Text(
                             "Q${idx + 1}. $questionText",
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
-                              fontSize: 17,
                               color: isDefect ? Colors.red.shade700 : Colors.black,
                             ),
                           ),
@@ -499,77 +561,55 @@ class _ChecklistPageState extends State<ChecklistPage> {
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // options
                     Row(
                       children: [
                         Expanded(
                           child: ChoiceChip(
-                            label: Text(a, style: const TextStyle(fontSize: 15)),
-                            selected: userAnswer == "A",
-                            onSelected: (_) {
-                              setState(() {
-                                answers[qId] = "A";
-                                if (controller.text.isNotEmpty) {
-                                  controller.clear();
-                                  remarksMap[qId] = "";
-                                }
-                              });
-                            },
+                            label: Text(a),
+                            selected: userAnswer == 'A',
+                            onSelected: (_) => setState(() {
+                              answers[qId] = 'A';
+                              ctl.clear();
+                            }),
                             selectedColor: Colors.teal,
                             backgroundColor: Colors.grey.shade200,
                             labelStyle: TextStyle(
-                              color: userAnswer == "A" ? Colors.white : Colors.black,
+                              color: userAnswer == 'A' ? Colors.white : Colors.black,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: ChoiceChip(
-                            label: Text(b, style: const TextStyle(fontSize: 15)),
-                            selected: userAnswer == "B",
-                            onSelected: (_) {
-                              setState(() {
-                                answers[qId] = "B";
-                                if (controller.text.isNotEmpty) {
-                                  controller.clear();
-                                  remarksMap[qId] = "";
-                                }
-                              });
-                            },
+                            label: Text(b),
+                            selected: userAnswer == 'B',
+                            onSelected: (_) => setState(() {
+                              answers[qId] = 'B';
+                              ctl.clear();
+                            }),
                             selectedColor: Colors.redAccent,
                             backgroundColor: Colors.grey.shade200,
                             labelStyle: TextStyle(
-                              color: userAnswer == "B" ? Colors.white : Colors.black,
+                              color: userAnswer == 'B' ? Colors.white : Colors.black,
                             ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // remark if defect
                     if (isDefect)
                       TextField(
-                        controller: controller,
-                        onChanged: (txt) {
-                          setState(() => remarksMap[qId] = txt);
-                        },
+                        controller: ctl,
+                        onChanged: (t) => setState(() {}),
                         decoration: InputDecoration(
                           labelText: 'Enter remark for defect',
-                          labelStyle: TextStyle(
-                            color: Colors.red.shade700,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          hintText: 'Required for defect answers',
-                          contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          labelStyle: const TextStyle(color: Colors.red),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: BorderSide(color: Colors.redAccent, width: 1.5),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: BorderSide(color: Colors.red.shade700, width: 2),
                           ),
                         ),
                       ),
@@ -577,26 +617,23 @@ class _ChecklistPageState extends State<ChecklistPage> {
                 ),
               ),
             );
-          }),
+          }).toList(),
+
           const SizedBox(height: 24),
 
-          // Submit Button
+          // ── SUBMIT ──
           isSubmitting
               ? const Center(child: CircularProgressIndicator())
               : ElevatedButton.icon(
-            onPressed: isSubmitting ? null : submitChecklist,
-            icon: Icon(Icons.check, color: Colors.white),
+            onPressed: submitChecklist,
+            icon: const Icon(Icons.check),
             label: const Text("Submit Checklist"),
             style: ElevatedButton.styleFrom(
-              minimumSize: const Size(180, 48),
-              textStyle: const TextStyle(fontSize: 18),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              backgroundColor: isChecklistValid() ? Colors.green : Colors.grey,
-              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+              backgroundColor:
+              isChecklistValid() ? Colors.green : Colors.grey,
             ),
-          )
+          ),
         ],
       ),
     );

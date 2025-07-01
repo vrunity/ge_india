@@ -54,56 +54,58 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
   Future<void> fetchNotifications() async {
     setState(() => isNotifLoading = true);
 
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('phone') ?? '';
-    print('Fetching notifications for user_id (phone): $userId');
-
-    const String notifApiUrl = 'https://esheapp.in/GE/App/get_notifications.php';
-
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('phone') ?? '';
+      print('Fetching notifications for user_id (phone): $userId');
+
+      const String notifApiUrl = 'https://esheapp.in/GE/App/get_notifications.php';
+
       final response = await http.post(
         Uri.parse(notifApiUrl),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({'user_id': userId}),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       print('API status: ${response.statusCode}');
       print('API body: ${response.body}');
+
+      List<Map<String, dynamic>> notifList = [];
+      int unread = 0;
 
       if (response.statusCode == 200 && response.body.isNotEmpty) {
         final data = jsonDecode(response.body);
 
         if (data['success'] == true && data['notifications'] is List) {
-          // SAFEGUARD: Filter only unseen notifications, but backend should already do this
-          final notifList = List<Map<String, dynamic>>.from(data['notifications'])
-              .where((n) => n['is_seen'] == 0)
+          notifList = List<Map<String, dynamic>>.from(data['notifications'])
+              .where((n) =>
+          n['is_seen'] == 0 ||
+              n['is_seen'] == '0' ||
+              n['is_seen'] == false)
               .toList();
-
-          setState(() {
-            notifications = notifList;
-            unreadCount = notifications.length;
-          });
-        } else {
-          setState(() {
-            notifications = [];
-            unreadCount = 0;
-          });
+          unread = notifList.length;
         }
-      } else {
+      }
+
+      if (mounted) {
+        setState(() {
+          notifications = notifList;
+          unreadCount = unread;
+          isNotifLoading = false;
+        });
+      }
+    } catch (e, stack) {
+      print('Error fetching notifications: $e\n$stack');
+      if (mounted) {
         setState(() {
           notifications = [];
           unreadCount = 0;
+          isNotifLoading = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        notifications = [];
-        unreadCount = 0;
-      });
-      print('Error fetching notifications: $e');
     }
-    if (mounted) setState(() => isNotifLoading = false);
   }
+
 
 
   Future<void> sendNotificationReply(int notifId, String reply) async {
