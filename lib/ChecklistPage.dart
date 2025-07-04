@@ -48,7 +48,16 @@ class _ChecklistPageState extends State<ChecklistPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _chooseLanguage());
     }
   }
-
+// At the top of your widget file, add:
+  Color _getChipColor({required String option, required String? userAnswer, required String correct}) {
+    if (userAnswer == null || userAnswer != option) return Colors.grey.shade200;
+    if (userAnswer == correct) return Colors.green;
+    return Colors.redAccent;
+  }
+  Color _getChipTextColor({required String option, required String? userAnswer, required String correct}) {
+    if (userAnswer == null || userAnswer != option) return Colors.black;
+    return Colors.white;
+  }
   @override
   void dispose() {
     for (final controller in remarkControllers.values) {
@@ -515,12 +524,12 @@ class _ChecklistPageState extends State<ChecklistPage> {
           const Divider(height: 32),
 
           // ── QUESTIONS ──
+          // Inside your build method (or wherever you map questions):
           ...questions.asMap().entries.map((entry) {
             final idx = entry.key;
             final q   = entry.value;
             final qId = q['id'].toString();
 
-            // null-safe casts here:
             final questionText = (q['question'] ?? '').toString();
             final a            = (q['option_a'] ?? '').toString();
             final b            = (q['option_b'] ?? '').toString();
@@ -577,10 +586,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
                               answers[qId] = 'A';
                               ctl.clear();
                             }),
-                            selectedColor: Colors.teal,
+                            selectedColor: _getChipColor(option: 'A', userAnswer: userAnswer, correct: correct),
                             backgroundColor: Colors.grey.shade200,
                             labelStyle: TextStyle(
-                              color: userAnswer == 'A' ? Colors.white : Colors.black,
+                              color: _getChipTextColor(option: 'A', userAnswer: userAnswer, correct: correct),
                             ),
                           ),
                         ),
@@ -593,10 +602,10 @@ class _ChecklistPageState extends State<ChecklistPage> {
                               answers[qId] = 'B';
                               ctl.clear();
                             }),
-                            selectedColor: Colors.redAccent,
+                            selectedColor: _getChipColor(option: 'B', userAnswer: userAnswer, correct: correct),
                             backgroundColor: Colors.grey.shade200,
                             labelStyle: TextStyle(
-                              color: userAnswer == 'B' ? Colors.white : Colors.black,
+                              color: _getChipTextColor(option: 'B', userAnswer: userAnswer, correct: correct),
                             ),
                           ),
                         ),
