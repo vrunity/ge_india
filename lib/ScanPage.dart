@@ -245,9 +245,10 @@ class _OperatorDashboardState extends State<OperatorDashboard> with WidgetsBindi
             builder: (_) =>
                 ChecklistPage(
                   operatorName: fullName,
-                  rfidNo: eq['rfid_no'],
-                  itemCategory: eq['item_category'],
-                  description: eq['description'] ?? '', // Pass description!
+                  rfidNo: eq['rfid_no'] ?? '', // fallback
+                  itemCategory: eq['item_category'] ?? '', // fallback
+                  Location: eq['location'] ?? '', // << corrected key + fallback
+                  description: eq['description'] ?? '',
                 ),
           ),
         );
@@ -266,11 +267,12 @@ class _OperatorDashboardState extends State<OperatorDashboard> with WidgetsBindi
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+      backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -583,18 +585,13 @@ class _OperatorDashboardState extends State<OperatorDashboard> with WidgetsBindi
                   Center(
                     child: OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFC0FF33),
-                            width: 1.3),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                        side: const BorderSide(color: Color(0xFFC0FF33), width: 1.3),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         backgroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 22, vertical: 11),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
                         elevation: 2,
                       ),
-                      icon: const Icon(
-                          Icons.help_outline_rounded, color: Color(0xFF009688),
-                          size: 22),
+                      icon: const Icon(Icons.help_outline_rounded, color: Color(0xFF009688), size: 22),
                       label: const Text(
                         "Need Help?",
                         style: TextStyle(
@@ -604,7 +601,19 @@ class _OperatorDashboardState extends State<OperatorDashboard> with WidgetsBindi
                         ),
                       ),
                       onPressed: () {
-                        // TODO: Show help or support
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("Help"),
+                            content: const Text("Contact EHS TEAM for assistance."),
+                            actions: [
+                              TextButton(
+                                child: const Text("OK"),
+                                onPressed: () => Navigator.of(ctx).pop(),
+                              )
+                            ],
+                          ),
+                        );
                       },
                     ),
                   ),

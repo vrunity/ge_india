@@ -168,7 +168,7 @@ class _DefectActionPageState extends State<DefectActionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+      backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,

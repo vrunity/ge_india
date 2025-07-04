@@ -198,7 +198,13 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['equipments'] != null) {
-          equipments = List<Map<String, dynamic>>.from(data['equipments']);
+          // Always convert to string for location field
+          equipments = List<Map<String, dynamic>>.from(data['equipments'])
+              .map((eq) {
+            // Ensure 'location' key exists and is a String (even if blank/null)
+            eq['location'] = (eq['location'] ?? '').toString();
+            return eq;
+          }).toList();
         } else {
           equipments = [];
         }
@@ -212,8 +218,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
 
     // Augment each equipment with lock-until info (from next due date)
     for (var eq in equipments) {
-      final rfid = eq['rfid_no'] as String? ?? '';
-      final cat = eq['item_category'] as String? ?? '';
+      final rfid = (eq['rfid_no'] ?? '') as String;
+      final cat = (eq['item_category'] ?? '') as String;
       final key = 'lock_until_${rfid}_$cat';
 
       if (prefs.containsKey(key)) {
@@ -234,6 +240,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
 
     setState(() => isLoading = false);
   }
+
 
   Future<void> setCheckedOk(String rfidNo, String itemCategory) async {
     final prefs = await SharedPreferences.getInstance();
@@ -346,7 +353,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+        backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -526,7 +533,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
                           ],
                         ),
 
-                        // --- DESCRIPTION LINE ---
+                        // Description line
                         if ((eq['description'] as String?)?.isNotEmpty ?? false)
                           Padding(
                             padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
@@ -537,6 +544,29 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> with WidgetsB
                                 Expanded(
                                   child: Text(
                                     eq['description'] ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+// Location line
+                        if ((eq['location'] as String?)?.isNotEmpty ?? false)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.location_on_outlined, size: 17, color: Colors.orange),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    eq['location'] ?? '',
                                     style: const TextStyle(
                                       fontSize: 15,
                                       color: Colors.black87,

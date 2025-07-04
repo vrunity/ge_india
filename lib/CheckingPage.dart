@@ -58,8 +58,9 @@ class _CheckingPageState extends State<CheckingPage> {
           MaterialPageRoute(
             builder: (_) => ChecklistPage(
               operatorName: fullName,
-              rfidNo: eq['rfid_no'],
-              itemCategory: eq['item_category'],
+              rfidNo: eq['rfid_no'] ?? '',
+              Location: eq['location'] ?? '', // <-- always fallback to empty string
+              itemCategory: eq['item_category'] ?? '',
               description: eq['description'] ?? '',
             ),
           ),
@@ -78,6 +79,8 @@ class _CheckingPageState extends State<CheckingPage> {
     }
   }
 
+
+
   void onEnterPressed() {
     final rfid = _rfidController.text.trim();
     if (rfid.isEmpty) {
@@ -90,7 +93,7 @@ class _CheckingPageState extends State<CheckingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+      backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,

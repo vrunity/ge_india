@@ -172,7 +172,6 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> with Widget
     final prefs = await SharedPreferences.getInstance();
     final areaManagerName = prefs.getString('full_name') ?? '';
 
-    // 1) Fetch from server
     const String apiUrl = 'https://esheapp.in/GE/App/get_area_manager_equipment.php';
     try {
       final response = await http.post(
@@ -181,13 +180,13 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> with Widget
         body: jsonEncode({'area_manager_name': areaManagerName}),
       );
 
-      // Debug: raw HTTP status & body
       print('🛰️ fetchAreaManagerEquipments → status ${response.statusCode}');
       print('🛰️ fetchAreaManagerEquipments → body   ${response.body}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['equipments'] != null) {
+          // List of Map<String, dynamic> with each equipment (now including 'location')
           equipments = List<Map<String, dynamic>>.from(data['equipments']);
         } else {
           equipments = [];
@@ -219,11 +218,13 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> with Widget
         eq.remove('disable_until');
       }
 
-      print('🗓️ $rfid disable_until → ${eq['disable_until']}');
+      // Optional: log the location for debugging
+      print('🗓️ $rfid disable_until → ${eq['disable_until']} | location: ${eq['location']}');
     }
 
     setState(() => isLoading = false);
   }
+
 
   Future<void> setCheckedOk(String rfidNo, String itemCategory) async {
     final prefs = await SharedPreferences.getInstance();
@@ -334,7 +335,7 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> with Widget
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+        backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -528,6 +529,31 @@ class _AreaManagerDashboardState extends State<AreaManagerDashboard> with Widget
                               ],
                             ),
                           ),
+
+// --- LOCATION LINE ---
+                        if ((eq['location'] as String?)?.isNotEmpty ?? false)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4.0),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.place, size: 17, color: Colors.redAccent),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    eq['location'] ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
                         // Operators pills
                         if (operatorStatuses.isNotEmpty) ...[
                           const SizedBox(height: 18),

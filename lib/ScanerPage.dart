@@ -52,17 +52,23 @@ class _ScanerpageState extends State<Scanerpage> with SingleTickerProviderStateM
     }
   }
 
-  /// Extracts RFID from URL. E.g. ...?RFID=XXXXX or ...?rfid=XXXXX
+  /// Extracts RFID value from URL. Works for ...?RFID=XXX, ...?rfid=XXX, ...?RFIDno=XXX, ...?rfidno=XXX
   String? _extractRfid(String url) {
     final uri = Uri.tryParse(url);
     if (uri != null && uri.queryParameters.isNotEmpty) {
-      return uri.queryParameters['RFID'] ?? uri.queryParameters['rfid'];
+      // Try all possible param names
+      return uri.queryParameters['RFIDno'] ??
+          uri.queryParameters['rfidno'] ??
+          uri.queryParameters['RFID'] ??
+          uri.queryParameters['rfid'];
     }
-    final exp = RegExp(r"RFID=([A-Za-z0-9]+)", caseSensitive: false);
+    // Fallback: Regex for any case/variant
+    final exp = RegExp(r"(RFIDno|RFID)=([A-Za-z0-9]+)", caseSensitive: false);
     final match = exp.firstMatch(url);
-    if (match != null) return match.group(1);
+    if (match != null) return match.group(2); // group(2) is after =
     return null;
   }
+
 
   @override
   Widget build(BuildContext context) {

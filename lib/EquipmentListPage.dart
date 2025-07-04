@@ -28,7 +28,7 @@ class EquipmentListPage extends StatelessWidget {
     final todayIndex = DateTime.now().weekday - 1;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+      backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,

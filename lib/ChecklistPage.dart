@@ -5,12 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ChecklistPage extends StatefulWidget {
   final String operatorName;
   final String rfidNo;
+  final String Location;
   final String itemCategory;
   final String description;   // <--- Add this
   const ChecklistPage({
     super.key,
     required this.operatorName,
     required this.rfidNo,
+    required this.Location,
     required this.itemCategory,
     required this.description, // <--- Add this
   });
@@ -436,7 +438,7 @@ class _ChecklistPageState extends State<ChecklistPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Checklist'),
-        backgroundColor: Colors.teal,
+        backgroundColor: const Color(0xFF00807B),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -498,6 +500,8 @@ class _ChecklistPageState extends State<ChecklistPage> {
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 Text("RFID: ${widget.rfidNo}",
+                    style: const TextStyle(fontWeight: FontWeight.w600)),const SizedBox(height: 4),
+                Text("Location: ${widget.Location}",
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 Text("Description: ${widget.description}",

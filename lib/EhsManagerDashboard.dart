@@ -165,6 +165,7 @@ class _EhsmanagerDashboardState extends State<EhsmanagerDashboard>with WidgetsBi
       print('Error in _checkIfDueToday: $e');
     }
   }
+
   Future<void> fetchEhsManagerEquipments() async {
     setState(() => isLoading = true);
 
@@ -187,6 +188,7 @@ class _EhsmanagerDashboardState extends State<EhsmanagerDashboard>with WidgetsBi
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['equipments'] != null) {
+          // We expect each equipment to have 'location' as well.
           equipments = List<Map<String, dynamic>>.from(data['equipments']);
         } else {
           equipments = [];
@@ -218,11 +220,15 @@ class _EhsmanagerDashboardState extends State<EhsmanagerDashboard>with WidgetsBi
         eq.remove('disable_until');
       }
 
+      // Optional: print location for debugging
+      print('🏷️ $rfid location → ${eq['location']}');
       print('🗓️ $rfid disable_until → ${eq['disable_until']}');
     }
 
     setState(() => isLoading = false);
   }
+
+
   Future<void> setCheckedOk(String rfidNo, String itemCategory) async {
     final prefs = await SharedPreferences.getInstance();
     final ehsManagerName = prefs.getString('full_name') ?? '';
@@ -347,7 +353,7 @@ class _EhsmanagerDashboardState extends State<EhsmanagerDashboard>with WidgetsBi
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF009688),
+        backgroundColor: const Color(0xFF00807B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -542,6 +548,29 @@ class _EhsmanagerDashboardState extends State<EhsmanagerDashboard>with WidgetsBi
                               ],
                             ),
                           ),
+                        if ((eq['location'] as String?)?.isNotEmpty ?? false)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.place, size: 17, color: Colors.purple),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    eq['location'] ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
                         // Operators pills
                         if (operatorStatuses.isNotEmpty) ...[
                           const SizedBox(height: 18),
